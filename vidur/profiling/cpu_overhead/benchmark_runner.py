@@ -3,6 +3,14 @@ import time
 
 import numpy as np
 from sarathi import LLMEngine, SamplingParams
+from sarathi.config import (
+    MetricsConfig,
+    ModelConfig,
+    ParallelConfig,
+    ReplicaConfig,
+    SarathiSchedulerConfig,
+    SystemConfig,
+)
 from sarathi.metrics.constants import CpuOperationMetrics
 from tqdm import tqdm
 
@@ -22,6 +30,7 @@ class BenchmarkRunner:
         batch_size: int,
         tensor_parallel_degree: int,
         output_dir: str,
+        model_path: str | None = None,
     ) -> None:
         self._model_name = model_name
         self._batch_size = batch_size
@@ -30,24 +39,36 @@ class BenchmarkRunner:
 
         self._config_name = f"{model_name}_{batch_size}_{tensor_parallel_degree}"
 
-        self._llm_engine = LLMEngine.from_engine_args(
-            replica_id=0,
-            # model config
-            model=model_name,
-            tokenizer=model_name,
-            tensor_parallel_size=tensor_parallel_degree,
+        replica_config = ReplicaConfig(
+            output_dir=output_dir,
+        )
+        model_config = ModelConfig(
+            model=model_path or model_name,
             dtype="float16",
             load_format="dummy",
-            # scheduler config
-            scheduler_type="vllm",
+            trust_remote_code=True,
+        )
+        parallel_config = ParallelConfig(
+            tensor_parallel_size=tensor_parallel_degree,
+            pipeline_parallel_size=1,
+        )
+        scheduler_config = SarathiSchedulerConfig(
             max_num_seqs=batch_size,
+        )
+        metrics_config = MetricsConfig(
             write_metrics=True,
-            output_dir=output_dir,
             enable_op_level_metrics=False,
             enable_cpu_op_level_metrics=True,
             keep_individual_batch_metrics=False,
-            trust_remote_code=True,
         )
+        system_config = SystemConfig(
+            replica_config=replica_config,
+            model_config=model_config,
+            parallel_config=parallel_config,
+            scheduler_config=scheduler_config,
+            metrics_config=metrics_config,
+        )
+        self._llm_engine = LLMEngine.from_system_config(system_config)
 
     def _get_input_params(self) -> SamplingParams:
         sampling_params = SamplingParams(
